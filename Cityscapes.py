@@ -112,9 +112,9 @@ class Road_Segmentation:
                                   os.listdir(os.path.join(os.getcwd(), dirs, 'train'))):
                 cur_dir = os.path.join(os.getcwd(), dirs, 'train', subdirs)
                 if dirs == image:
-                    image_dataset.append(self.load_images(cur_dir, '*.png'))
+                    image_dataset.extend(self.load_images(cur_dir, '*.png'))
                 if dirs == mask:
-                    mask_dataset.append(self.load_images(cur_dir, '*color.png'))
+                    mask_dataset.extend(self.load_images(cur_dir, '*color.png'))
 
         return np.array(image_dataset)[:int(len(image_dataset) * 0.15)], np.array(mask_dataset)[:int(len(image_dataset) * 0.15)]
 
@@ -301,5 +301,4 @@ class Road_Segmentation:
  
 if __name__ == '__main__':
     model = Road_Segmentation()
-    data = model.get_training_data()
-    # model.train_model()
+    model.train_model()
