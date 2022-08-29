@@ -84,20 +84,23 @@ class Road_Segmentation:
         return to_categorical(y = integer_encoded_labels, num_classes = num_classes)
 
 
-    def load_images(self, dir, pattern):
+    def load_images(self, dir, pattern, size_ratio):
         '''
         :param dir: current directory
         :param pattern: glob pattern
         :return: return the files are in dir/pattern
         '''
         dataset = []
-        for path in tqdm(glob(os.path.join(dir, pattern))):
+        dirs = list(glob(os.path.join(dir, pattern)))
+        dirs = dirs[:int(len(dirs)*size_ratio)]
+        for path in tqdm(dirs):
             img = cv.imread(path)
             img = cv.cvtColor(img, cv.COLOR_BGR2RGB)
             dataset.append(cv.resize(img, None, fx=0.75, fy=0.75))
         return dataset
 
     def get_training_data(self):
+        size_ratio = 0.15
         # initialise lists
         image_dataset = []
         mask_dataset = []
@@ -112,10 +115,10 @@ class Road_Segmentation:
                                   os.listdir(os.path.join(os.getcwd(), dirs, 'train'))):
                 cur_dir = os.path.join(os.getcwd(), dirs, 'train', subdirs)
                 if dirs == image:
-                    image_dataset.extend(self.load_images(cur_dir, '*.png'))
+                    image_dataset.extend(self.load_images(cur_dir, '*.png',size_ratio))
                 if dirs == mask:
-                    mask_dataset.extend(self.load_images(cur_dir, '*color.png'))
-
+                    mask_dataset.extend(self.load_images(cur_dir, '*color.png', size_ratio))
+        return np.array(image_dataset), np.array(mask_dataset)
         return np.array(image_dataset)[:int(len(image_dataset) * 0.15)], np.array(mask_dataset)[:int(len(image_dataset) * 0.15)]
 
 
