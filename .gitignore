@@ -1,0 +1,12 @@
+# vscode
+*.vscode
+
+# pycharm
+.idea
+
+# temp
+testing.py
+
+# dataset
+gtFine
+leftImg8bit

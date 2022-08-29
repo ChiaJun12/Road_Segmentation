@@ -1,5 +1,5 @@
 import os 
-os.chdir(os.path.join('D:\Study Material\ML & DL\Data'))
+os.chdir(os.path.join(r'C:\Users\Leong Teng Man\Desktop\Road_Segmentation'))
   
 import matplotlib.pyplot as plt
 import numpy as np
@@ -30,6 +30,7 @@ patch_size = 128
 
 # define target classes
 class MaskColorMap(enum.Enum):
+    # these correspond to RGB values in train and target picture
     unlabeled =             (0, 0, 0),
     ego_vehicle =           (0, 0, 0),
     rectification_border =  (0, 0, 0),
@@ -83,33 +84,38 @@ class Road_Segmentation:
         return to_categorical(y = integer_encoded_labels, num_classes = num_classes)
 
 
+    def load_images(self, dir, pattern):
+        '''
+        :param dir: current directory
+        :param pattern: glob pattern
+        :return: return the files are in dir/pattern
+        '''
+        dataset = []
+        for path in tqdm(glob(os.path.join(dir, pattern))):
+            img = cv.imread(path)
+            img = cv.cvtColor(img, cv.COLOR_BGR2RGB)
+            dataset.append(cv.resize(img, None, fx=0.75, fy=0.75))
+        return dataset
 
     def get_training_data(self):
         # initialise lists
         image_dataset = []
         mask_dataset = []
-        
-        image = 'leftImg8bit'
-        mask = 'gtFine'
 
-        input_image_subdir = ['aachen'] 
-        
-        for dirs in os.listdir(os.getcwd()):
-            if os.path.isdir(dirs): 
-                for subdirs in os.listdir(os.path.join(os.getcwd(), dirs, 'train')):
-                    if subdirs in input_image_subdir:
-                        if dirs == image: 
-                            for path in tqdm(glob(os.path.join(os.getcwd(), dirs, 'train', subdirs, '*.png'))): 
-                                img = cv.imread(path)
-                                img = cv.cvtColor(img, cv.COLOR_BGR2RGB)
-                                image_dataset.append(cv.resize(img, None, fx=0.75, fy=0.75))
-                                  
-                        if dirs == mask:
-                            for path in tqdm(glob(os.path.join(os.getcwd(), dirs, 'train', subdirs, '*color.png'))):
-                                img = cv.imread(path)
-                                img = cv.cvtColor(img, cv.COLOR_BGR2RGB)
-                                mask_dataset.append(cv.resize(img, None, fx=0.75, fy=0.75))
-          
+        image = 'leftImg8bit'   # original image directory
+        mask = 'gtFine'         # labelled image directory
+
+        input_image_subdir = ['aachen']
+        ignore_fn = lambda dir: dir[0] != '.' and os.path.isdir(dir)
+        for dirs in filter(ignore_fn, os.listdir(os.getcwd())):
+            for subdirs in filter(lambda dir: dir in input_image_subdir,
+                                  os.listdir(os.path.join(os.getcwd(), dirs, 'train'))):
+                cur_dir = os.path.join(os.getcwd(), dirs, 'train', subdirs)
+                if dirs == image:
+                    image_dataset.append(self.load_images(cur_dir, '*.png'))
+                if dirs == mask:
+                    mask_dataset.append(self.load_images(cur_dir, '*color.png'))
+
         return np.array(image_dataset)[:int(len(image_dataset) * 0.15)], np.array(mask_dataset)[:int(len(image_dataset) * 0.15)]
 
 
@@ -154,7 +160,7 @@ class Road_Segmentation:
         return X_train, X_test, Y_train, Y_test
 
 
-
+    # unet is a CNN type
     def build_unet(self):
         # input layer shape is equal to patch image size
         inputs = Input(shape=(patch_size, patch_size, 3))
@@ -295,5 +301,5 @@ class Road_Segmentation:
  
 if __name__ == '__main__':
     model = Road_Segmentation()
-    
-    model.train_model()
+    data = model.get_training_data()
+    # model.train_model()
