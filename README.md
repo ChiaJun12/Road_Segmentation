@@ -12,9 +12,3 @@ Multiclass Object Recognition with Convolutional Neural Network
 - leftImg8Bit contains the original images
 
 # Demo
-
-![](result 1.png)
-
-![](result 2.png)
-
-![](result 3.png)
