@@ -1,6 +1,7 @@
+import sys
 import os 
-os.chdir(os.path.join(r'C:\Users\Leong Teng Man\Desktop\Road_Segmentation'))
-  
+os.chdir(os.path.join('D:\Study Material\ML & DL\FYP (Road Segmentation)\Coding')) 
+
 import matplotlib.pyplot as plt
 import numpy as np
 from glob import glob 
@@ -10,46 +11,38 @@ from PIL import Image
 from patchify import patchify
 import cv2 as cv
 import enum
-from tensorflow.keras.utils import to_categorical
-import multiprocessing
-
-from tensorflow.keras import Input, Model
-from tensorflow.keras.layers import Conv2D, Dropout, Conv2DTranspose, MaxPooling2D
-from tensorflow.keras.layers import Rescaling, concatenate
+from tensorflow.keras.utils import to_categorical 
+   
 from keras import backend as K
+from keras.models import load_model
+from keras_tuner import RandomSearch
 
-from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping, CSVLogger
-from tensorflow.keras.optimizers import Adam
-from sklearn.model_selection import GridSearchCV
-from scikeras.wrappers import KerasClassifier
 import tensorflow as tf
- 
+from tensorflow.keras.models import load_model
+from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping, CSVLogger
+from tensorflow.keras.optimizers import Adamax, Adam
+
+from Models import unet 
+
 EPOCHS = 100
 patch_size = 128
-
-
+ 
 # define target classes
 class MaskColorMap(enum.Enum):
-    # these correspond to RGB values in train and target picture
     unlabeled =             (0, 0, 0),
-    ego_vehicle =           (0, 0, 0),
-    rectification_border =  (0, 0, 0),
-    out_of_roi =            (0, 0, 0),
-    static =                (0, 0, 0),
     dynamic =               (111, 74, 0),
     ground =                (81, 0, 81),
     road =                  (128, 64, 128),
     sidewalk =              (244, 35, 232),
     parking =               (250, 170, 160),
-    rail_track =            (230, 150, 140),
+    # rail_track =            (230, 150, 140),
     building =              (70, 70, 70),
     wall =                  (102, 102, 156),
     fence =                 (190, 153, 153),
-    guard_rail =            (180, 165, 180),
-    bridge =                (150, 100, 100),
-    tunnel =                (150, 120, 90),
-    pole =                  (153, 153, 153),
-    polegroup =             (153, 153, 153),
+    # guard_rail =            (180, 165, 180),
+    # bridge =                (150, 100, 100),
+    # tunnel =                (150, 120, 90),
+    pole =                  (153, 153, 153), 
     traffic_light =         (250, 170, 30),
     traffic_sign =          (220, 220, 0),
     vegetation =            (107, 142, 35),
@@ -57,19 +50,29 @@ class MaskColorMap(enum.Enum):
     sky =                   (70, 130, 180),
     person =                (220, 20, 60),
     rider =                 (255, 0, 0),
-    car =                   (0, 0,142),
+    car =                   (0, 0, 142),
     truck =                 (0, 0, 70),
-    bus =                   (0, 60,100),
+    bus =                   (0, 60, 100),
     caravan =               (0, 0, 90),
-    trailer =               (0, 0,110),
-    train =                 (0, 80, 100),
+    # trailer =               (0, 0,110),
+    # train =                 (0, 80, 100),
     motorcycle =            (0, 0, 230),
     bicycle =               (119, 11, 32),
-    license_plate =         (0, 0, 142),
+    # license_plate =         (0, 0, 142),
 
-
-
+ 
+# main model 
 class Road_Segmentation: 
+    image_dataset = []
+    mask_dataset = []
+    
+    # get image dataset and mask dataset
+    def __init__(self, image_dataset, mask_dataset):
+        self.image_dataset = np.array(image_dataset)
+        self.mask_dataset = np.array(mask_dataset)
+     
+    
+    # classify different objects 
     def one_hot_encode_masks(self, masks, num_classes):
         integer_encoded_labels = []
         for mask in tqdm(masks):
@@ -83,48 +86,21 @@ class Road_Segmentation:
             
         return to_categorical(y = integer_encoded_labels, num_classes = num_classes)
 
-
-    def load_images(self, dir, pattern, size_ratio):
-        '''
-        :param dir: current directory
-        :param pattern: glob pattern
-        :return: return the files are in dir/pattern
-        '''
+  
+    # convert image path to image data
+    def transform_data(self, image_set):
         dataset = []
-        dirs = list(glob(os.path.join(dir, pattern)))
-        dirs = dirs[:int(len(dirs)*size_ratio)]
-        for path in tqdm(dirs):
-            img = cv.imread(path)
+
+        for img_path in image_set:
+            img = cv.imread(img_path)
             img = cv.cvtColor(img, cv.COLOR_BGR2RGB)
-            dataset.append(cv.resize(img, None, fx=0.75, fy=0.75))
+            dataset.append(cv.resize(img, None, fx=0.25, fy=0.25))
+            
         return dataset
-
-    def get_training_data(self):
-        size_ratio = 0.15
-        # initialise lists
-        image_dataset = []
-        mask_dataset = []
-
-        image = 'leftImg8bit'   # original image directory
-        mask = 'gtFine'         # labelled image directory
-
-        input_image_subdir = ['aachen']
-        ignore_fn = lambda dir: dir[0] != '.' and os.path.isdir(dir)
-        for dirs in filter(ignore_fn, os.listdir(os.getcwd())):
-            for subdirs in filter(lambda dir: dir in input_image_subdir,
-                                  os.listdir(os.path.join(os.getcwd(), dirs, 'train'))):
-                cur_dir = os.path.join(os.getcwd(), dirs, 'train', subdirs)
-                if dirs == image:
-                    image_dataset.extend(self.load_images(cur_dir, '*.png',size_ratio))
-                if dirs == mask:
-                    mask_dataset.extend(self.load_images(cur_dir, '*color.png', size_ratio))
-        return np.array(image_dataset), np.array(mask_dataset)
-        return np.array(image_dataset)[:int(len(image_dataset) * 0.15)], np.array(mask_dataset)[:int(len(image_dataset) * 0.15)]
-
 
 
     # read image
-    def parse_image(self, img, patch_size = patch_size):  
+    def patch_image(self, img, patch_size = patch_size):  
         instances = []
         
         for i, image in tqdm(enumerate(img)):  
@@ -141,68 +117,32 @@ class Road_Segmentation:
      
       
 
+    # generate x_train, x_test, y_train, y_test
     def split_data(self):
         # number of classes in segmentation dataset
-        n_classes = 35
+        n_classes = 23
         
         # create (X, Y) training data
-        x, y = self.get_training_data()
-        X = self.parse_image(x) 
-        Y = self.parse_image(y) 
+        x, y = self.image_dataset, self.mask_dataset
+        x = self.transform_data(x)
+        y = self.transform_data(y)
+        X = self.patch_image(x) 
+        Y = self.patch_image(y) 
+        
         
         # extract X_train shape parameters
-        m, img_height, img_width, img_channels = X.shape
-        print('number of patched image training data:', m)
-          
+        m, img_height, img_width, img_channels = X.shape 
+
         # convert RGB values to integer encoded labels for categorial_crossentropy
         Y = self.one_hot_encode_masks(Y, num_classes=n_classes) 
         
         # split dataset into training and test groups
-        X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.20, random_state=42)
+        X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.20, random_state=1)
         
         return X_train, X_test, Y_train, Y_test
 
 
-    # unet is a CNN type
-    def build_unet(self):
-        # input layer shape is equal to patch image size
-        inputs = Input(shape=(patch_size, patch_size, 3))
 
-        # rescale images from (0, 255) to (0, 1)
-        rescale = Rescaling(scale=1. / 255, input_shape=(patch_size, patch_size, 3))(inputs)
-        previous_block_activation = rescale  # Set aside residual
-
-        contraction = {}
-        no_filter = [64, 128]
-        # # Contraction path: Blocks 1 through 5 are identical apart from the feature depth
-        for f in no_filter:
-            x = Conv2D(f, (3, 3), activation='relu', kernel_initializer='he_normal', padding='same')(previous_block_activation)
-            x = Dropout(0.2)(x)
-            x = Conv2D(f, (3, 3), activation='relu', kernel_initializer='he_normal', padding='same')(x)
-            contraction[f'conv{f}'] = x
-            x = MaxPooling2D((2, 2))(x)
-            previous_block_activation = x
-            
-        c5 = Conv2D(patch_size, (3, 3), activation='relu', kernel_initializer='he_normal', padding='same')(previous_block_activation)          
-        c5 = Dropout(0.1)(c5)
-        c5 = Conv2D(patch_size, (3, 3), activation='relu', kernel_initializer='he_normal', padding='same')(c5)
-        previous_block_activation = c5 
-     
-        # Expansive path: Second half of the network: upsampling inputs
-        for f in reversed(no_filter):
-            x = Conv2DTranspose(f, (2, 2), strides=(2, 2), padding='same')(previous_block_activation)
-            x = concatenate([x, contraction[f'conv{f}']])
-            x = Conv2D(f, (3, 3), activation='relu', kernel_initializer='he_normal', padding='same')(x)
-            x = Dropout(0.2)(x)
-            x = Conv2D(f, (3, 3), activation='relu', kernel_initializer='he_normal', padding='same')(x)
-            previous_block_activation = x
-
-        outputs = Conv2D(filters=35, kernel_size=(1, 1), activation="softmax")(previous_block_activation)
-
-        return Model(inputs=inputs, outputs=outputs)
-     
-     
-     
     # jaccard similarity: the size of the intersection divided by the size of the union of two sets
     def jaccard_index(self, y_true, y_pred):
         y_true_f = K.flatten(y_true)
@@ -211,7 +151,7 @@ class Road_Segmentation:
         return (intersection + 1.0) / (K.sum(y_true_f) + K.sum(y_pred_f) - intersection + 1.0)
 
       
-
+    # convert image from normalized format to rgb format
     def rgb_encode_mask(self, mask):
         # initialize rgb image with equal spatial resolution
         rgb_encode_image = np.zeros((mask.shape[0], mask.shape[1], 3))
@@ -223,7 +163,7 @@ class Road_Segmentation:
         return rgb_encode_image
 
       
-
+    # optional: display one patch image
     def display_images(self, instances, rows=2, titles=None):
         """
         :param instances:  list of images
@@ -239,69 +179,203 @@ class Road_Segmentation:
             plt.subplot(rows, cols, j + 1)
             plt.title('') if titles is None else plt.title(titles[j])
             plt.axis("off")
+            image = cv.resize(image, None, fx=1.5, fy=1.5)
             plt.imshow(image)
 
         # show the figure
         plt.show()
 
-         
 
+    def image_concatenation(self, ori_image, predicted_img):
+        concatenated_image = []
+        
+        shape = np.array(ori_image).shape
+        row = shape[1] // patch_size
+        col = shape[2] // patch_size
+        
+        for r in range(row):
+            temp = []
+            temp = np.concatenate((predicted_img[r * col: col + (r * col)]), axis=1)
+            if r == 0:
+                concatenated_image = np.concatenate((np.expand_dims(temp, axis=0)), axis=0)
+            else:
+                concatenated_image = np.concatenate((concatenated_image, temp), axis=0)
+    
+        return concatenated_image
+        
+
+    # concatenate predict images and display as full image
+    def get_full_image_prediction(self, model):
+        # initialise lists
+        rand = np.random.randint(0, len(self.image_dataset))
+        
+        rand_image = self.image_dataset[rand]
+        mask_image = self.mask_dataset[rand] 
+    
+        ori_image = self.transform_data([rand_image])
+        image = self.patch_image(ori_image)
+     
+        predicted_img = []
+        for img in image:
+            predicted_img.append(model.predict(np.expand_dims(img, axis = 0)))
+    
+        for i, img in enumerate(predicted_img):
+            predicted_img[i] = np.squeeze(img)
+            predicted_img[i] = np.argmax(predicted_img[i], axis=-1)
+            predicted_img[i] = self.rgb_encode_mask(predicted_img[i])
+         
+        mask_image = self.transform_data([mask_image])        
+         
+        concatenated_image = self.image_concatenation(ori_image, predicted_img)
+                  
+        return np.squeeze(ori_image), np.squeeze(mask_image), concatenated_image
+         
+    
+    # train cnn model
     def train_model(self):  
-        model = self.build_unet()
+        model = unet()
         
         # add callbacks, compile model and fit training data
         # save best model with maximum validation accuracy
         checkpoint = ModelCheckpoint('best_model_unet.h5', monitor="val_accuracy", verbose=1, save_best_only=True, mode="max")
         
-        # stop model training early if validation loss doesn't continue to decrease over 2 iterations
-        early_stopping = EarlyStopping(monitor='val_loss', patience=2, verbose=1, mode="min")
-        
-        # log training console output to csv
+        # create log 
         csv_logger = CSVLogger('training.log', separator=",", append=False)
         
         # create list of callbacks
         callbacks_list = [checkpoint, csv_logger] 
 
         # get data
-        X_train, X_test, Y_train, Y_test = self.split_data() 
-  
-        # compile model
-        model.compile(optimizer=Adam(learning_rate=0.0005), loss="categorical_crossentropy", metrics=["accuracy", self.jaccard_index])
-  
-        model.fit(X_train, Y_train, epochs=EPOCHS, batch_size=16, validation_data=(X_test, Y_test), callbacks=callbacks_list, verbose=1)
-     
-        # tf.saved_model.save(model, 'D:\\Study Material\\ML & DL\\FYP (Road Segmentation)\\Coding\\latest_model\\aug-28(1)')
-        
-        for _ in range(20):
-            # choose random number from 0 to test set size
-            test_img_number = np.random.randint(0, len(X_test))
-        
-            # extract test input image
-            test_img = X_test[test_img_number]
-        
-            # ground truth test label converted from one-hot to integer encoding
-            ground_truth = np.argmax(Y_test[test_img_number], axis=-1)
-        
-            # expand first dimension as U-Net requires (m, h, w, nc) input shape
-            test_img_input = np.expand_dims(test_img, 0)
-        
-            # make prediction with model and remove extra dimension
-            prediction = np.squeeze(model.predict(test_img_input))
-        
-            # convert softmax probabilities to integer values
-            predicted_img = np.argmax(prediction, axis=-1)
-         
-            # convert integer encoding to rgb values
-            rgb_image = self.rgb_encode_mask(predicted_img)
-            rgb_ground_truth = self.rgb_encode_mask(ground_truth)
-        
-            # visualize model predictions
-            self.display_images(
-                [test_img, rgb_ground_truth, rgb_image],
-                rows=1, titles=['Aerial', 'Ground Truth', 'Prediction']
-            )
-        
+        X_train, X_test, Y_train, Y_test = self.split_data()
  
+        # compile model
+        model.compile(optimizer=Adamax(learning_rate=0.00225), loss="categorical_crossentropy", metrics=["accuracy", self.jaccard_index])
+     
+        model.fit(X_train, Y_train, epochs=EPOCHS, batch_size=8, validation_data=(X_test, Y_test), callbacks=callbacks_list, verbose=1)
+      
+        return model 
+    
+    
+    # get video frame
+    def predict_video(self, video_name):
+        model = load_model('best_model_unet.h5', custom_objects={'jaccard_index': self.jaccard_index})
+
+        # load video data
+        source = cv.VideoCapture(video_name)
+        while True:
+            ret, frame = source.read()
+
+            frame = cv.cvtColor(frame, cv.COLOR_BGR2RGB)
+            frame = cv.resize(frame, None, fx=0.25, fy=0.25)
+            
+            image = self.patch_image([frame])
+            
+            predicted_img = []
+            for img in image:
+                predicted_img.append(model.predict(np.expand_dims(img, axis = 0)))
+        
+            for i, img in enumerate(predicted_img):
+                predicted_img[i] = np.squeeze(img)
+                predicted_img[i] = np.argmax(predicted_img[i], axis=-1)
+                predicted_img[i] = self.rgb_encode_mask(predicted_img[i]) 
+                 
+            concatenate_image = self.image_concatenation(np.expand_dims(frame, axis=0), predicted_img)
+
+            concatenate_image = concatenate_image * 255
+            concatenate_image = concatenate_image.astype(np.uint8)
+
+            final = cv.addWeighted(frame, 1, concatenate_image, 0.5, 0)
+
+            final = cv.resize(final, None, fx=3, fy=3)
+            
+            cv.imshow('prediction', final)
+
+            # press 'Q' to stop
+            if cv.waitKey(1) == ord('q'):
+               break
+            
+        source.release()
+
+
+    # further training
+    def further_training(self): 
+        # load model
+        model = load_model('best_model_unet.h5', custom_objects = {'jaccard_index': self.jaccard_index})
+         
+        X_train, X_test, Y_train, Y_test = self.split_data()
+
+        # save the best val_accuracy model
+        checkpoint = ModelCheckpoint('best_model_unet.h5', monitor="val_accuracy", verbose=1, save_best_only=True, mode="max")
+        
+        # stop model if no improvement after 10 epochs
+        early_stopping = EarlyStopping(monitor='val_loss', patience=10, verbose=1, mode="min")
+        
+        # create log 
+        csv_logger = CSVLogger('training.log', separator=",", append=False)
+        
+        # create list of callbacks
+        callbacks_list = [checkpoint, csv_logger, early_stopping] 
+
+        model.compile(optimizer=Adamax(learning_rate=0.002), loss="categorical_crossentropy", metrics=["accuracy", self.jaccard_index])
+     
+        model.fit(X_train, Y_train, epochs=EPOCHS, batch_size=8, validation_data=(X_test, Y_test), callbacks=callbacks_list, verbose=1)
+  
+        for i in range(5):
+            image, mask_image, pred_image = self.get_full_image_prediction(model)
+                
+            self.display_images(
+                [image, mask_image, pred_image],
+                rows=1, titles=['original image', 'mask image', 'predicted image']
+            )
+
+         
+# load data from local system
+def get_training_data(dataset):
+    # initialise lists
+    image_dataset = []
+    mask_dataset = []
+    
+    image = 'leftImg8bit'
+    mask = 'gtFine'
+
+    input_image_subdir = dataset  
+
+    for dirs in [image, mask]: 
+        for subdirs in os.listdir(os.path.join(os.getcwd(), dirs, 'train')):
+            if subdirs in input_image_subdir: 
+                if dirs == image:
+                    image_dataset.extend(glob(os.path.join(os.getcwd(), dirs, 'train', subdirs, '*.png')))
+                else:
+                    mask_dataset.extend(glob(os.path.join(os.getcwd(), dirs, 'train', subdirs, '*color.png')))
+    
+    return image_dataset, mask_dataset
+
+    
+
+# main function
 if __name__ == '__main__':
-    model = Road_Segmentation()
-    model.train_model()
+    # for first training: 'jena', 'erfurt', 'krefeld' 
+ 
+    dataset = sys.argv[1:-1]
+    training_option = sys.argv[-1]
+  
+    image_dataset, mask_dataset = get_training_data(dataset)
+    semantic_model = Road_Segmentation(image_dataset, mask_dataset)
+
+    if training_option == 'new':
+        model = semantic_model.train_model()
+        
+        for i in range(5):
+            image, mask_image, pred_image = semantic_model.get_full_image_prediction(model)
+            
+            semantic_model.display_images(
+                [image, mask_image, pred_image],
+                rows=1, titles=['original image', 'mask image', 'predicted image']
+            )  
+    elif training_option == 'continue':
+        semantic_model.further_training()
+    
+    elif training_option == 'video':
+        video_name = input('Enter the video file name: ')
+        semantic_model.predict_video(video_name)  
+    
